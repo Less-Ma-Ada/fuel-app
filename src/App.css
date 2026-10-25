@@ -1,0 +1,36 @@
+.app { max-width: 720px; margin: 0 auto; padding: 16px; font-family: system-ui, sans-serif; text-align: left; color: #e8fff4; }
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+header > div { flex: 1; }
+header img { width: 56px; height: 56px; border-radius: 12px; }
+header h1 { margin: 0; font-size: 22px; color: #2ee6a0; }
+header p { margin: 2px 0 0; color: #9bc4b2; font-size: 14px; }
+nav, .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+button { font: inherit; cursor: pointer; padding: 8px 14px; border-radius: 10px; border: 1px solid #1f5c46; background: #0b2a20; color: #e8fff4; }
+button.on { background: #2ee6a0; color: #04120d; border-color: #2ee6a0; }
+.primary, .go { background: #2ee6a0; color: #04120d; border: 0; font-weight: 600; }
+.primary { padding: 12px; font-size: 16px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+h2 { font-size: 18px; margin: 18px 0 8px; }
+form { display: flex; flex-direction: column; gap: 10px; }
+input:not([type=checkbox]), select, textarea { padding: 10px; border-radius: 10px; border: 1px solid #1f5c46; background: #06180f; color: #e8fff4; font: inherit; }
+.box, .card { background: #0b2a20; border: 1px solid #1f5c46; border-radius: 12px; padding: 12px; }
+.note { color: #9bc4b2; font-size: 13px; }
+.err { color: #ff8a8a; margin: 0; }
+small { color: #9bc4b2; }
+a { color: #2ee6a0; }
+
+.card { margin-bottom: 10px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 12px 0; }
+.stat { background: #0b2a20; border: 1px solid #1f5c46; border-radius: 12px; padding: 12px; }
+.stat small { display: block; }
+.stat b { font-size: 22px; }
+.bar { height: 12px; background: #123; border-radius: 6px; overflow: hidden; margin: 8px 0; }
+.fill { height: 100%; transition: width .3s; }
+.fill.low { background: #ef4444; }
+.fill.mid { background: #fb923c; }
+.fill.high { background: #2ee6a0; }
+.tag { padding: 3px 10px; border-radius: 20px; font-size: 13px; background: #1c3a30; white-space: nowrap; }
+.tag.good { background: #1b6b46; }
+.tag.warn { background: #7a6a1b; }
+.row2 { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+a.go { display: inline-block; padding: 8px 14px; border-radius: 10px; text-decoration: none; background: #2ee6a0; color: #04120d; font-weight: 600; }
