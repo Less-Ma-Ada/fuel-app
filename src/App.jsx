@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import Auth from './Auth'
-import Entrepreneur from './Entrepreneur'
+import Shell from './Shell'
 import Funder from './Funder'
 import Customer from './Customer'
 import './App.css'
@@ -16,7 +16,7 @@ export default function App() {
     return () => data.subscription.unsubscribe()
   }, [])
 
-    useEffect(() => {
+  useEffect(() => {
     if (!session) {
       setProfile(null)
       return
@@ -32,6 +32,8 @@ export default function App() {
   if (!session) return <Auth />
   if (!profile) return <p className="app">Loading…</p>
 
+  if (profile.role === 'entrepreneur') return <Shell profile={profile} />
+
   return (
     <div className="app">
       <header>
@@ -42,7 +44,6 @@ export default function App() {
         </div>
         <button onClick={() => supabase.auth.signOut()}>Log out</button>
       </header>
-      {profile.role === 'entrepreneur' && <Entrepreneur />}
       {profile.role === 'funder' && <Funder />}
       {profile.role === 'customer' && <Customer />}
     </div>

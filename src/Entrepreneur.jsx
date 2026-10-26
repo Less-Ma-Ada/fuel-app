@@ -1,182 +1,445 @@
-import { useCallback, useEffect, useState } from 'react'
-import { supabase } from './supabase'
-import { R, todaySA, daysAgoSA, normalizeWa, TIER_INFO } from './util'
-import { ScoreBar, FundingTracker } from './Bits'
 
-const SECTORS = ['Retail', 'Food and catering', 'Agriculture', 'Manufacturing', 'Services', 'Construction', 'Technology', 'Other']
-const EMPTY = { revenue: '', expenses: '', note: '', off: false }
+import { useEffect, useState } from "react";
+import { useDemo } from "./data/DemoContext";
+import { R, todaySA, normalizeWa } from "./util";
+
+const SECTORS = [
+  "Retail",
+  "Food and catering",
+  "Agriculture",
+  "Manufacturing",
+  "Services",
+  "Construction",
+  "Technology",
+  "Other",
+];
+
+const EMPTY = { revenue: "", expenses: "", note: "", off: false };
 
 export default function Entrepreneur() {
-  const [biz, setBiz] = useState(undefined)
-  const [sum, setSum] = useState(null)
-  const [recs, setRecs] = useState([])
-  const [prof, setProf] = useState(null)
-  const [day, setDay] = useState(todaySA())
-  const [log, setLog] = useState(EMPTY)
-  const [msg, setMsg] = useState('')
-  const [pmsg, setPmsg] = useState('')
-  const today = todaySA()
+  const {
+    data,
+    income,
+    expenses,
+    cashFlow,
+    addTransaction,
+    updateBusiness,
+    setData,
+  } = useDemo();
 
-  const load = useCallback(async () => {
-    const { data: b } = await supabase.from('businesses').select('*').maybeSingle()
-    setBiz(b || null)
-    if (!b) return
-    setProf((p) => p || {
-      sector: b.sector || '',
-      area: b.area || '',
-      description: b.description || '',
-      whatsapp: b.whatsapp || '',
-      show_to_customers: b.show_to_customers,
-      show_to_funders: b.show_to_funders,
-    })
-    const { data: s } = await supabase.rpc('my_summary')
-    setSum(s && s[0] ? s[0] : null)
-    const { data: r } = await supabase
-      .from('cashflow_records')
-      .select('*')
-      .eq('business_id', b.id)
-      .order('day', { ascending: false })
-      .limit(60)
-    setRecs(r || [])
-  }, [])
+  const biz = data.business;
+  const recs = data.transactions || [];
+  const today = todaySA();
+
+  const [day, setDay] = useState(today);
+  const [log, setLog] = useState(EMPTY);
+  const [msg, setMsg] = useState("");
+  const [pmsg, setPmsg] = useState("");
+
+  const [prof, setProf] = useState({
+    sector: biz.sector || "",
+    area: biz.location || "",
+    description: biz.description || "",
+    whatsapp: biz.whatsapp || "",
+    show_to_customers: Boolean(biz.show_to_customers),
+    show_to_funders: Boolean(biz.show_to_funders),
+  });
 
   useEffect(() => {
-    load()
-  }, [load])
+    const records = recs.filter((r) => r.date === day);
+    const dayIncome = records
+      .filter((r) => r.type === "income")
+      .reduce((total, r) => total + Number(r.amount), 0);
+    const dayExpenses = records
+      .filter((r) => r.type === "expense")
+      .reduce((total, r) => total + Number(r.amount), 0);
 
-  useEffect(() => {
-    const r = recs.find((x) => x.day === day)
-    setLog(r ? { revenue: String(r.revenue), expenses: String(r.expenses), note: r.note || '', off: r.is_day_off } : EMPTY)
-  }, [day, recs])
+    setLog(
+      records.length
+        ? {
+            revenue: String(dayIncome),
+            expenses: String(dayExpenses),
+            note: records[0].note || "",
+            off: records.some((r) => r.type === "day-off"),
+          }
+        : EMPTY
+    );
+    setMsg("");
+  }, [day]); // The selected date determines which entries are edited.
 
-  async function saveLog(e) {
-    e.preventDefault()
-    setMsg('')
-    const revenue = log.off ? 0 : Number(log.revenue || 0)
-    const expenses = log.off ? 0 : Number(log.expenses || 0)
-    if (revenue < 0 || expenses < 0) return setMsg('Amounts cannot be negative.')
-    if (!log.off && revenue === 0 && !window.confirm('R0 counts as a missed day. Tick Day Off if you were closed. Save anyway?')) return
-    const { error } = await supabase.from('cashflow_records').upsert(
-      { business_id: biz.id, day, revenue, expenses, note: log.note.trim().slice(0, 200), is_day_off: log.off },
-      { onConflict: 'business_id,day' }
-    )
-    if (error) return setMsg(error.message)
-    setMsg('Saved.')
-    load()
+  function saveLog(e) {
+    e.preventDefault();
+    setMsg("");
+
+    const revenue = log.off ? 0 : Number(log.revenue || 0);
+    const spend = log.off ? 0 : Number(log.expenses || 0);
+
+    if (day > today) {
+      setMsg("Choose today or an earlier date.");
+      return;
+    }
+
+    if (
+      !log.off &&
+      log.revenue.trim() === "" &&
+      log.expenses.trim() === ""
+    ) {
+      setMsg("Enter income or expenses, or select Day Off.");
+      return;
+    }
+
+    if (
+      !Number.isFinite(revenue) ||
+      !Number.isFinite(spend) ||
+      revenue < 0 ||
+      spend < 0
+    ) {
+      setMsg("Enter valid amounts. Amounts cannot be negative.");
+      return;
+    }
+
+    // Replace previous demo entries for this date.
+    setData((current) => ({
+      ...current,
+      transactions: current.transactions.filter(
+        (r) => r.date !== day
+      ),
+    }));
+
+    if (log.off) {
+      setData((current) => ({
+        ...current,
+        transactions: [
+          {
+            id: crypto.randomUUID(),
+            type: "day-off",
+            description: "Business closed",
+            amount: 0,
+            date: day,
+            note: log.note.trim().slice(0, 200),
+          },
+          ...current.transactions,
+        ],
+      }));
+    } else {
+      const newEntries = [];
+
+      if (revenue > 0) {
+        newEntries.push({
+          id: crypto.randomUUID(),
+          type: "income",
+          description: "Daily income",
+          amount: revenue,
+          date: day,
+          note: log.note.trim().slice(0, 200),
+        });
+      }
+
+      if (spend > 0) {
+        newEntries.push({
+          id: crypto.randomUUID(),
+          type: "expense",
+          description: "Daily expenses",
+          amount: spend,
+          date: day,
+          note: log.note.trim().slice(0, 200),
+        });
+      }
+
+      setData((current) => ({
+        ...current,
+        transactions: [
+          ...newEntries,
+          ...current.transactions,
+        ],
+      }));
+    }
+
+    setMsg("Saved to local demo data.");
   }
 
-  async function saveProfile(e) {
-    e.preventDefault()
-    setPmsg('')
-    const wa = normalizeWa(prof.whatsapp)
-    if (wa === null) return setPmsg('Enter a valid South African number, like 0712345678.')
-    if ((prof.show_to_customers || prof.show_to_funders) && !prof.area.trim()) return setPmsg('Add your area before you switch on visibility.')
-    if (prof.show_to_customers && !wa) return setPmsg('Add a WhatsApp number so customers can reach you.')
-    const { error } = await supabase
-      .from('businesses')
-      .update({
-        sector: prof.sector || null,
-        area: prof.area.trim() || null,
-        description: prof.description.trim().slice(0, 300) || null,
-        whatsapp: wa || null,
-        show_to_customers: prof.show_to_customers,
-        show_to_funders: prof.show_to_funders,
-      })
-      .eq('id', biz.id)
-    if (error) return setPmsg(error.message)
-    setPmsg('Profile saved.')
-    load()
+  function saveProfile(e) {
+    e.preventDefault();
+    setPmsg("");
+
+    const wa = normalizeWa(prof.whatsapp || "");
+
+    if (wa === null) {
+      setPmsg("Enter a valid South African number, like 0712345678.");
+      return;
+    }
+
+    if (
+      (prof.show_to_customers || prof.show_to_funders) &&
+      !prof.area.trim()
+    ) {
+      setPmsg("Add your area before enabling visibility.");
+      return;
+    }
+
+    if (prof.show_to_customers && !wa) {
+      setPmsg("Add a WhatsApp number before showing your business to customers.");
+      return;
+    }
+
+    updateBusiness({
+      sector: prof.sector,
+      location: prof.area.trim(),
+      description: prof.description.trim().slice(0, 300),
+      whatsapp: wa || "",
+      show_to_customers: prof.show_to_customers,
+      show_to_funders: prof.show_to_funders,
+    });
+
+    setPmsg("Demo profile saved.");
   }
 
-  if (biz === undefined) return <p className="note">Loading…</p>
-  if (biz === null) return <p className="err">No business found for this account. Delete it and sign up again.</p>
-  if (!sum || !prof) return <p className="note">Loading…</p>
+  const daysLogged = new Set(recs.map((r) => r.date)).size;
+  const profileChecks = [
+    Boolean(biz.name),
+    Boolean(biz.sector),
+    Boolean(biz.location),
+    Boolean(biz.description),
+  ].filter(Boolean).length;
 
-  const from = daysAgoSA(29)
-  const last30 = recs.filter((r) => r.day >= from)
-  const income = last30.reduce((s, r) => s + Number(r.revenue), 0)
-  const spend = last30.reduce((s, r) => s + Number(r.expenses), 0)
-  const setP = (k) => (e) => setProf({ ...prof, [k]: e.target.value })
+  const readiness = Math.round((profileChecks / 4) * 100);
 
   return (
     <section>
-      <div className="row2">
-        <div>
-          <h2 style={{ margin: 0 }}>{biz.name}</h2>
-          <small>{biz.area || 'Add your area below'} · {biz.registered ? 'Registered (declared)' : 'Not registered'}</small>
+      <h2>{biz.name}</h2>
+      <p className="note">
+        {biz.location || "Add your area"} · Local demo workspace
+      </p>
+
+      <div className="stats">
+        <div className="stat">
+          <small>Profile readiness</small>
+          <b>{readiness}%</b>
         </div>
-        <span className="tag">{sum.tier} · {TIER_INFO[sum.tier]}</span>
+        <div className="stat">
+          <small>Days with records</small>
+          <b>{daysLogged}</b>
+        </div>
+        <div className="stat">
+          <small>Transactions</small>
+          <b>{recs.length}</b>
+        </div>
       </div>
 
       <div className="stats">
-        <div className="stat"><small>Consistency score</small><b>{sum.score}%</b></div>
-        <div className="stat"><small>Days logged</small><b>{sum.days_logged}</b></div>
-        <div className="stat"><small>Day Offs this month</small><b>{sum.days_off_this_month}/4</b></div>
-      </div>
-      <div className="card">
-        <ScoreBar score={sum.score} />
-        <p className="note">Built from your own daily records. Not yet verified. Log every day to grow it.</p>
+        <div className="stat">
+          <small>Total income</small>
+          <b>{R(income)}</b>
+        </div>
+        <div className="stat">
+          <small>Total expenses</small>
+          <b>{R(expenses)}</b>
+        </div>
+        <div className="stat">
+          <small>Net cash flow</small>
+          <b className={cashFlow < 0 ? "neg" : "pos"}>
+            {R(cashFlow)}
+          </b>
+        </div>
       </div>
 
-      <div className="stats">
-        <div className="stat"><small>Income, 30 days</small><b>{R(income)}</b></div>
-        <div className="stat"><small>Expenses, 30 days</small><b>{R(spend)}</b></div>
-        <div className="stat"><small>Cash flow</small><b>{R(income - spend)}</b></div>
-      </div>
+      <h2>Bookkeeping · Log your day</h2>
 
-      <h2>Log your day</h2>
       <form className="card" onSubmit={saveLog}>
-        <input type="date" value={day} min={biz.start_date} max={today} onChange={(e) => setDay(e.target.value || today)} />
-        {day < today && <p className="note">Late or edited entries lose 5%.</p>}
+        <label htmlFor="demo-date">Transaction date</label>
+        <input
+          id="demo-date"
+          type="date"
+          value={day}
+          max={today}
+          onChange={(e) => setDay(e.target.value || today)}
+        />
+
         <label>
-          <input type="checkbox" checked={log.off} onChange={(e) => setLog({ ...log, off: e.target.checked })} /> Day Off (closed)
+          <input
+            type="checkbox"
+            checked={log.off}
+            onChange={(e) =>
+              setLog({ ...log, off: e.target.checked })
+            }
+          />
+          Day Off — business closed
         </label>
-        {log.off && sum.days_off_this_month >= 4 && (
-          <p className="note">You used all 4 Day Offs this month. This one counts as a missed day.</p>
-        )}
+
         {!log.off && (
           <>
-            <input type="number" min="0" placeholder="Money in today (R)" value={log.revenue} onChange={(e) => setLog({ ...log, revenue: e.target.value })} />
-            <input type="number" min="0" placeholder="Money out today (R)" value={log.expenses} onChange={(e) => setLog({ ...log, expenses: e.target.value })} />
+            <label htmlFor="demo-income">Income (R)</label>
+            <input
+              id="demo-income"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 1200"
+              value={log.revenue}
+              onChange={(e) =>
+                setLog({ ...log, revenue: e.target.value })
+              }
+            />
+
+            <label htmlFor="demo-expenses">Expenses (R)</label>
+            <input
+              id="demo-expenses"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 350"
+              value={log.expenses}
+              onChange={(e) =>
+                setLog({ ...log, expenses: e.target.value })
+              }
+            />
           </>
         )}
-        <input maxLength={200} placeholder="Note (optional)" value={log.note} onChange={(e) => setLog({ ...log, note: e.target.value })} />
-        {msg && <p className={msg === 'Saved.' ? 'note' : 'err'}>{msg}</p>}
-        <button className="primary" type="submit">Save</button>
+
+        <label htmlFor="demo-note">Note</label>
+        <input
+          id="demo-note"
+          maxLength={200}
+          placeholder="Optional transaction note"
+          value={log.note}
+          onChange={(e) =>
+            setLog({ ...log, note: e.target.value })
+          }
+        />
+
+        {msg && (
+          <p className={msg.startsWith("Saved") ? "note" : "err"}>
+            {msg}
+          </p>
+        )}
+
+        <button className="primary" type="submit">
+          Save demo entries
+        </button>
       </form>
 
-      <h2>Recent days</h2>
-      {recs.slice(0, 7).map((r) => (
-        <div className="card row2" key={r.id}>
-          <b>{r.day}</b>
-          <span>{r.is_day_off ? 'Day Off' : R(r.revenue)}</span>
-          {r.edited && <span className="tag warn">Edited</span>}
+      <h2>Recent records</h2>
+
+      {recs.length === 0 && (
+        <div className="card">
+          <p className="note">No records yet. Add your first entry above.</p>
         </div>
-      ))}
-      {recs.length === 0 && <p className="note">No records yet. Log your first day above.</p>}
+      )}
 
-      <FundingTracker role="entrepreneur" />
+      {recs
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 10)
+        .map((r) => (
+          <div className="card row2" key={r.id}>
+            <div>
+              <b>{r.description}</b>
+              <p className="note">
+                {r.date}
+                {r.note ? ` · ${r.note}` : ""}
+              </p>
+            </div>
+            <b className={r.type === "income" ? "pos" : "neg"}>
+              {r.type === "day-off"
+                ? "Day Off"
+                : `${r.type === "income" ? "+" : "−"}${R(Number(r.amount))}`}
+            </b>
+          </div>
+        ))}
 
-      <h2>Profile and visibility</h2>
+      <h2>Business Passport details</h2>
+
       <form className="card" onSubmit={saveProfile}>
-        <select value={prof.sector} onChange={setP('sector')}>
-          <option value="">Sector</option>
-          {SECTORS.map((s) => <option key={s}>{s}</option>)}
+        <label htmlFor="demo-sector">Business sector</label>
+        <select
+          id="demo-sector"
+          value={prof.sector}
+          onChange={(e) =>
+            setProf({ ...prof, sector: e.target.value })
+          }
+        >
+          <option value="">Choose sector</option>
+          {SECTORS.map((sector) => (
+            <option key={sector} value={sector}>
+              {sector}
+            </option>
+          ))}
         </select>
-        <input placeholder="Area or township" value={prof.area} onChange={setP('area')} />
-        <textarea maxLength={300} placeholder="What do you sell?" value={prof.description} onChange={setP('description')} />
-        <input placeholder="WhatsApp number, like 0712345678" value={prof.whatsapp} onChange={setP('whatsapp')} />
+
+        <label htmlFor="demo-area">Area or township</label>
+        <input
+          id="demo-area"
+          placeholder="e.g. Soweto, Gauteng"
+          value={prof.area}
+          onChange={(e) =>
+            setProf({ ...prof, area: e.target.value })
+          }
+        />
+
+        <label htmlFor="demo-description">What does your business do?</label>
+        <textarea
+          id="demo-description"
+          maxLength={300}
+          placeholder="Describe your products or services"
+          value={prof.description}
+          onChange={(e) =>
+            setProf({ ...prof, description: e.target.value })
+          }
+        />
+
+        <label htmlFor="demo-whatsapp">WhatsApp number</label>
+        <input
+          id="demo-whatsapp"
+          placeholder="0712345678"
+          value={prof.whatsapp}
+          onChange={(e) =>
+            setProf({ ...prof, whatsapp: e.target.value })
+          }
+        />
+
         <label>
-          <input type="checkbox" checked={prof.show_to_customers} onChange={(e) => setProf({ ...prof, show_to_customers: e.target.checked })} /> Show me to customers
+          <input
+            type="checkbox"
+            checked={prof.show_to_customers}
+            onChange={(e) =>
+              setProf({
+                ...prof,
+                show_to_customers: e.target.checked,
+              })
+            }
+          />
+          Show business to customers (demo)
         </label>
-        <p className="note">Customers see your name, sector, area, description, WhatsApp number and score. Never your money.</p>
+
         <label>
-          <input type="checkbox" checked={prof.show_to_funders} onChange={(e) => setProf({ ...prof, show_to_funders: e.target.checked })} /> Show me to funders
+          <input
+            type="checkbox"
+            checked={prof.show_to_funders}
+            onChange={(e) =>
+              setProf({
+                ...prof,
+                show_to_funders: e.target.checked,
+              })
+            }
+          />
+          Show business to funders (demo)
         </label>
-        <p className="note">Funders see the same, plus your tier, days logged and registration status.</p>
-        {pmsg && <p className={pmsg === 'Profile saved.' ? 'note' : 'err'}>{pmsg}</p>}
-        <button className="primary" type="submit">Save profile</button>
+
+        <p className="note">
+          These are local demo visibility settings. They do not publish
+          your information online.
+        </p>
+
+        {pmsg && (
+          <p className={pmsg.startsWith("Demo profile saved") ? "note" : "err"}>
+            {pmsg}
+          </p>
+        )}
+
+        <button className="primary" type="submit">
+          Save business profile
+        </button>
       </form>
     </section>
-  )
+  );
 }
